@@ -172,12 +172,20 @@ body {
   min-height: 1.2em;
 }
 
-.help {
+/* 左下の角。操作案内の下にリポジトリへのリンクを並べる */
+.corner {
   position: fixed;
   left: 16px;
   bottom: 16px;
   z-index: 1;
+  display: grid;
+  justify-items: start;
+  gap: 8px;
   max-width: calc(100vw - 32px);
+}
+
+.help {
+  max-width: 100%;
   padding: 12px 16px;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.82);
@@ -247,6 +255,31 @@ body {
   width: 32px;
   height: 32px;
   color: var(--ink);
+}
+
+/* リポジトリへのリンク。操作案内と同じ見た目の小さな札にする */
+.github {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #24292f;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(6px);
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.github:hover {
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.github-icon {
+  width: 16px;
+  height: 16px;
 }
 
 /* マウスがない端末ではタッチの案内だけを見せる */

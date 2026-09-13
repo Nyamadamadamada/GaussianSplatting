@@ -1,5 +1,7 @@
 ![3D Gaussian Splatting きーたん](img/サムネイル.png)
 
+https://nyamadamadamada.github.io/GaussianSplatting/
+
 # ３DGaussianSplattingきーたん
 
 Qiitanを撮影した動画から3D Gaussian Splattingのモデルを作り、Webサイト上で降らせるまでのリポジトリです。
