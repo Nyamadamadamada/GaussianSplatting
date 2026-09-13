@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   capsuleFor,
   fitScale,
+  isEveryNth,
   nudgeImpulse,
   spawnAngularVelocity,
   spawnPosition,
@@ -22,6 +23,16 @@ describe("fitScale", () => {
   it("最長辺が目標サイズになるスケールを返し、サイズが 0 なら例外を投げる", () => {
     expect(fitScale({ x: 2, y: 4, z: 1 }, 1.2)).toBeCloseTo(0.3);
     expect(() => fitScale({ x: 0, y: 0, z: 0 }, 1)).toThrow();
+  });
+});
+
+describe("isEveryNth", () => {
+  it("7 回に 1 回なら 7 回目と 14 回目だけ true になり、回数が 1 未満なら例外を投げる", () => {
+    const turns = Array.from({ length: 14 }, (_, count) => isEveryNth(count, 7));
+    expect(turns.filter(Boolean).length).toBe(2);
+    expect(turns[6]).toBe(true);
+    expect(turns[13]).toBe(true);
+    expect(() => isEveryNth(0, 0)).toThrow();
   });
 });
 
@@ -50,11 +61,12 @@ describe("初速と姿勢の乱数", () => {
     expect(spawnVelocity(() => ALMOST_ONE, 1.5).x).toBeCloseTo(1.5, 4);
   });
 
-  it("姿勢、角速度、転がす力は各軸に別々の乱数を使う", () => {
-    const rotation = spawnRotation(sequence([0, 0.5, 0.25]));
-    expect(rotation.x).toBeCloseTo(0);
+  it("姿勢は正面向きを基準に傾きの上限まで、角速度と転がす力は各軸に別々の乱数を使う", () => {
+    const front = { x: 0, y: Math.PI, z: 0 };
+    const rotation = spawnRotation(sequence([0, 0.5, ALMOST_ONE]), front, 0.3);
+    expect(rotation.x).toBeCloseTo(-0.3);
     expect(rotation.y).toBeCloseTo(Math.PI);
-    expect(rotation.z).toBeCloseTo(Math.PI / 2);
+    expect(rotation.z).toBeCloseTo(0.3, 4);
 
     const spin = spawnAngularVelocity(sequence([0, 1, 0.5]), 4);
     expect(spin.x).toBeCloseTo(-4);

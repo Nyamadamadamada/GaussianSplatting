@@ -3,6 +3,8 @@ import { SparkRenderer } from "@sparkjsdev/spark";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RapierPhysics } from "three/addons/physics/RapierPhysics.js";
 import {
+  type Vec3,
+  isEveryNth,
   nudgeImpulse,
   spawnAngularVelocity,
   spawnPosition,
@@ -10,10 +12,13 @@ import {
   spawnVelocity,
 } from "./falling";
 import { Opening } from "./openingScene";
-import { Qiitan, loadQiitanShape } from "./qiitan";
+import { Qiitan, type QiitanShape, loadQiitanShape } from "./qiitan";
 
 // 表示する 3DGS データ。Vite の base からの相対パスで解決する
 const SPLAT_URL = `${import.meta.env.BASE_URL}models/export_05000.spz`;
+// 違うタイプの Qiitan。NIKO_EVERY 回に 1 回だけ降らせる
+const NIKO_SPLAT_URL = `${import.meta.env.BASE_URL}models/niko_7000.spz`;
+const NIKO_EVERY = 3;
 // Qiitan の最長辺をこの大きさに揃える
 const QIITAN_SIZE = 2.16;
 const query = new URLSearchParams(location.search);
@@ -21,8 +26,10 @@ const query = new URLSearchParams(location.search);
 const INITIAL_COUNT = Number(query.get("initial") ?? 10);
 const INITIAL_INTERVAL_MS = 150;
 // 同時に存在できる Qiitan の数。超えた分は古いものから再利用する。
-// 1 体あたり約 18 万スプラットあるため、描画負荷を抑えるために控えめにする
+// 1 体あたり約 18 万スプラットあるため、描画負荷を抑えるために控えめにする。
+// 違うタイプの分は降る割合に合わせて確保し、残りを通常の Qiitan に充てる
 const MAX_QIITAN = 16;
+const MAX_NIKO = Math.ceil(MAX_QIITAN / NIKO_EVERY);
 // 少し上から見下ろし、床が奥へ続いて見えるようにする
 const CAMERA_FOV = 50;
 const CAMERA_POSITION = { x: 0, y: 2.5, z: 8 };
@@ -37,16 +44,25 @@ const FLOOR_Y = -1.5;
 // 壁で囲った部屋。奥行きを区切り、Qiitan が視界の外へ転がらないようにする。
 // 床は手前の断面が画面に映らないよう、見えない前壁より手前まで延ばす
 const ROOM = { halfWidth: 5, backZ: -6, frontZ: 2, floorFrontZ: 5, wallHeight: 4.5 };
+// ソファーの背もたれと奥の壁の隙間
+const SOFA_GAP_FROM_BACK = 0.5;
 // 壁紙と床材。1 枚を何メートル四方として敷き詰めるか
 const TEXTURE_DIR = `${import.meta.env.BASE_URL}textures/`;
 const WALLPAPER_TILE = 2;
 const FLOOR_TILE = 2.5;
-// 落下位置に使う奥行きの範囲。壁から少し内側にする
-const DEPTH_RANGE = { minZ: ROOM.backZ + 1, maxZ: ROOM.frontZ - 1 };
+// 落下位置と壁の隙間。壁に触れたまま落ちると摩擦で転がり、頭から落ちてしまうため必ず離す
+const WALL_CLEARANCE = 0.2;
 const MASS = 1;
 const RESTITUTION = 0.4;
 const MAX_SIDEWAYS_SPEED = 0.8;
-const MAX_SPIN = 4;
+// 落下開始の姿勢。モデルごとの正面向きを基準に、各軸この角度まで傾ける。
+// 正面向きは実際に降らせて確かめた値で、モデルを作り直したら合わせ直す
+const FRONT_ROTATION = { x: 0, y: Math.PI / 2, z: 0 };
+const NIKO_FRONT_ROTATION = { x: -Math.PI / 4, y: Math.PI, z: 0 };
+const MAX_TILT = 0.2;
+// 回転は弱くし、着地後は早く止めて正面を向いたままにする
+const MAX_SPIN = 0.5;
+const ANGULAR_DAMPING = 5;
 // タップで転がすときの力。上向きと、横向きの上限
 const NUDGE_UP = 3;
 const NUDGE_SIDEWAYS = 1.5;
@@ -132,8 +148,18 @@ function updateWallOpacity(): void {
   }
 }
 
+// タイプごとの使い回し枠。形が違うので同じ枠では使い回せない
+type QiitanPool = {
+  shape: QiitanShape;
+  // 落下開始時に正面を向く姿勢
+  front: Vec3;
+  members: Qiitan[];
+  next: number;
+  max: number;
+};
+// 全タイプをまとめた一覧。姿勢の同期とタップ判定に使う
 const qiitans: Qiitan[] = [];
-let nextIndex = 0;
+let dropCount = 0;
 
 function onResize(): void {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -223,13 +249,14 @@ function buildRoom(physics: Awaited<ReturnType<typeof RapierPhysics>>): void {
   addStaticBox(physics, new THREE.Vector3(0.5, colliderHeight, depth + 1), new THREE.Vector3(-ROOM.halfWidth - 0.25, colliderY, centerZ));
   addStaticBox(physics, new THREE.Vector3(0.5, colliderHeight, depth + 1), new THREE.Vector3(ROOM.halfWidth + 0.25, colliderY, centerZ));
 
-  buildSofa(physics, centerZ);
+  buildSofa(physics);
 }
 
-// 白い箱を組み合わせたソファーを部屋の中央に置く。各パーツをそのまま当たり判定にする
-function buildSofa(physics: Awaited<ReturnType<typeof RapierPhysics>>, z: number): void {
+// 白い箱を組み合わせたソファーを奥の壁際に置く。各パーツをそのまま当たり判定にする
+function buildSofa(physics: Awaited<ReturnType<typeof RapierPhysics>>): void {
   const material = new THREE.MeshLambertMaterial({ color: "#f6f5f0" });
   const seat = { width: 3, height: 0.45, depth: 2.7, bottom: FLOOR_Y + 0.15 };
+  const z = ROOM.backZ + SOFA_GAP_FROM_BACK + seat.depth / 2;
   const armWidth = 0.3;
   const backDepth = 0.3;
   const parts: { size: THREE.Vector3; position: THREE.Vector3 }[] = [
@@ -273,32 +300,65 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const [physics, shape] = await Promise.all([RapierPhysics(), loadQiitanShape(SPLAT_URL, QIITAN_SIZE)]);
+  const [physics, shape, nikoShape] = await Promise.all([
+    RapierPhysics(),
+    loadQiitanShape(SPLAT_URL, QIITAN_SIZE),
+    loadQiitanShape(NIKO_SPLAT_URL, QIITAN_SIZE),
+  ]);
 
   buildRoom(physics);
 
-  const halfSize = Math.max(shape.size.x, shape.size.y, shape.size.z) / 2;
-  // カメラをどこへ回しても壁の上から現れるよう、壁の上端を基準にして落とす
-  const spawnArea = {
-    ...DEPTH_RANGE,
-    halfWidth: ROOM.halfWidth - halfSize,
-    topY: FLOOR_Y + ROOM.wallHeight,
-    margin: halfSize * 2,
+  const normalPool: QiitanPool = {
+    shape,
+    front: FRONT_ROTATION,
+    members: [],
+    next: 0,
+    max: MAX_QIITAN - MAX_NIKO,
+  };
+  const nikoPool: QiitanPool = {
+    shape: nikoShape,
+    front: NIKO_FRONT_ROTATION,
+    members: [],
+    next: 0,
+    max: MAX_NIKO,
   };
 
-  function drop(): void {
-    let qiitan = qiitans[nextIndex];
+  // カメラをどこへ回しても壁の上から現れるよう、壁の上端を基準にして落とす。
+  // 横と奥行きは、体の半分と隙間の分だけ壁から内側にする
+  function spawnAreaFor(target: QiitanShape) {
+    const halfSize = Math.max(target.size.x, target.size.y, target.size.z) / 2;
+    const inset = halfSize + WALL_CLEARANCE;
+    return {
+      minZ: ROOM.backZ + inset,
+      maxZ: ROOM.frontZ - inset,
+      halfWidth: ROOM.halfWidth - inset,
+      topY: FLOOR_Y + ROOM.wallHeight,
+      margin: halfSize * 2,
+    };
+  }
+
+  // 枠に空きがあれば作り、なければ古いものから使い回す
+  function takeFrom(pool: QiitanPool): Qiitan {
+    let qiitan = pool.members[pool.next];
     if (!qiitan) {
-      qiitan = new Qiitan(shape, physics, MASS, RESTITUTION);
+      qiitan = new Qiitan(pool.shape, physics, MASS, RESTITUTION, ANGULAR_DAMPING);
+      pool.members.push(qiitan);
       qiitans.push(qiitan);
       scene.add(qiitan.group, qiitan.body);
     }
-    nextIndex = (nextIndex + 1) % MAX_QIITAN;
+    pool.next = (pool.next + 1) % pool.max;
+    return qiitan;
+  }
+
+  function drop(): void {
+    const pool = isEveryNth(dropCount, NIKO_EVERY) ? nikoPool : normalPool;
+    dropCount++;
+    const qiitan = takeFrom(pool);
 
     qiitan.drop(
       physics,
-      spawnPosition(Math.random, spawnArea),
-      spawnRotation(Math.random),
+      spawnPosition(Math.random, spawnAreaFor(pool.shape)),
+      spawnRotation(Math.random, pool.front, MAX_TILT),
       spawnVelocity(Math.random, MAX_SIDEWAYS_SPEED),
       spawnAngularVelocity(Math.random, MAX_SPIN),
     );

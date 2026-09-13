@@ -42,7 +42,13 @@ export class Qiitan {
   // 物理演算用。RapierPhysics に登録し、画面には出さない
   readonly body: THREE.Mesh;
 
-  constructor(shape: QiitanShape, physics: RapierPhysicsObject, mass: number, restitution: number) {
+  constructor(
+    shape: QiitanShape,
+    physics: RapierPhysicsObject,
+    mass: number,
+    restitution: number,
+    angularDamping: number,
+  ) {
     // LOD を有効にして、画面上で小さいときはスプラットを間引けるようにする
     const splats = new SplatMesh({ packedSplats: shape.packedSplats, lod: true });
     splats.scale.setScalar(shape.scale);
@@ -58,6 +64,8 @@ export class Qiitan {
     // タブが非表示になると物理演算のステップ幅が大きくなり、床をすり抜けることがある。
     // 連続衝突検出を有効にして、どんなステップ幅でも床で止まるようにする
     this.body.userData.physics.body.enableCcd(true);
+    // 回転を早く減衰させ、着地後に転がり続けて向きが変わらないようにする
+    this.body.userData.physics.body.setAngularDamping(angularDamping);
   }
 
   // 指定位置から、姿勢と速度を与えて落下を始める

@@ -12,6 +12,7 @@
 | `src/falling.ts` | 落下位置や初速などの純粋な計算 |
 | `src/opening.ts`、`src/openingScene.ts` | オープニングの時間配分と画面制御 |
 | `public/models/export_05000.spz` | 表示する Qiitan。差し替えたら `src/main.ts` の `SPLAT_URL` を変える |
+| `public/models/niko_7000.spz` | 違うタイプの Qiitan。3 回に 1 回降る。差し替えたら `src/main.ts` の `NIKO_SPLAT_URL` を変える |
 | `public/img/` | オープニングと看板の画像 |
 | `public/textures/` | 壁紙と床材。ambientCG の CC0 素材 |
 | `tests/unit/`、`tests/e2e/` | Vitest の単体テストと Playwright の画面テスト |
@@ -22,7 +23,7 @@
 npm install
 npx playwright install chromium   # 画面テストを実行する場合のみ
 npm run dev        # 開発サーバー
-npm run build      # 型チェックと本番ビルド。dist/ に出力
+npm run build      # 型チェックと本番ビルド。GitHub Pages 用にリポジトリ直下の docs/ に出力
 npm run preview    # ビルド成果物の確認
 npm test           # 単体テスト
 npm run test:e2e   # 画面テスト。ビルドしてから preview サーバーで実行

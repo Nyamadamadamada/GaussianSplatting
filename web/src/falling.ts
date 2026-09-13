@@ -15,6 +15,14 @@ export function fitScale(size: Vec3, targetSize: number): number {
   return targetSize / longest;
 }
 
+// 0 始まりの回数 count が、n 回に 1 回の順番かどうか。n 回目、2n 回目で true になる
+export function isEveryNth(count: number, n: number): boolean {
+  if (n < 1) {
+    throw new Error("回数は 1 以上にしてください");
+  }
+  return (count + 1) % n === 0;
+}
+
 // min 以上 max 以下の範囲で乱数を引く
 export function randomBetween(rng: Rng, min: number, max: number): number {
   return min + (max - min) * rng();
@@ -48,13 +56,13 @@ export function spawnVelocity(rng: Rng, maxSideways: number): Vec3 {
   return { x: randomBetween(rng, -maxSideways, maxSideways), y: 0, z: 0 };
 }
 
-// 全軸ランダムな初期姿勢。オイラー角のラジアンで返す
-export function spawnRotation(rng: Rng): Vec3 {
-  const full = Math.PI * 2;
+// 正面向きの姿勢 base に、各軸 maxTilt までのランダムな傾きを足した初期姿勢。
+// 着地後も正面を向きやすいよう、大きく回さない。オイラー角のラジアンで返す
+export function spawnRotation(rng: Rng, base: Vec3, maxTilt: number): Vec3 {
   return {
-    x: randomBetween(rng, 0, full),
-    y: randomBetween(rng, 0, full),
-    z: randomBetween(rng, 0, full),
+    x: base.x + randomBetween(rng, -maxTilt, maxTilt),
+    y: base.y + randomBetween(rng, -maxTilt, maxTilt),
+    z: base.z + randomBetween(rng, -maxTilt, maxTilt),
   };
 }
 
