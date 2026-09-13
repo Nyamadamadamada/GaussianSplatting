@@ -80,6 +80,11 @@ export class Qiitan {
     this.sync();
   }
 
+  // 一瞬だけ力を加えて転がす
+  nudge(physics: RapierPhysicsObject, impulse: Vec3): void {
+    physics.applyImpulse(this.body, impulse);
+  }
+
   // カプセルの姿勢を表示用グループへコピーする
   sync(): void {
     this.group.position.copy(this.body.position);

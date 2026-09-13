@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   capsuleFor,
   fitScale,
-  randomBetween,
+  nudgeImpulse,
   spawnAngularVelocity,
   spawnPosition,
   spawnRotation,
@@ -15,91 +15,68 @@ function sequence(values: number[]) {
   return () => values[Math.min(i++, values.length - 1)];
 }
 
+// 乱数 1 に最も近い値。上限側の境界を確認するときに使う
+const ALMOST_ONE = 0.999999;
+
 describe("fitScale", () => {
-  it("最長辺が目標サイズになるスケールを返す", () => {
+  it("最長辺が目標サイズになるスケールを返し、サイズが 0 なら例外を投げる", () => {
     expect(fitScale({ x: 2, y: 4, z: 1 }, 1.2)).toBeCloseTo(0.3);
-  });
-
-  it("サイズが 0 のときは例外を投げる", () => {
     expect(() => fitScale({ x: 0, y: 0, z: 0 }, 1)).toThrow();
-  });
-});
-
-describe("randomBetween", () => {
-  it("乱数 0 で下限、乱数 1 直前で上限に近づく", () => {
-    expect(randomBetween(() => 0, -3, 3)).toBe(-3);
-    expect(randomBetween(() => 0.999999, -3, 3)).toBeCloseTo(3, 4);
   });
 });
 
 describe("spawnPosition", () => {
   const area = { minZ: -4, maxZ: 2, halfWidth: 4, topY: 3, margin: 0.6 };
 
-  it("最初の乱数で奥行きを選び、y は基準の高さに余白を足した位置になる", () => {
-    const p = spawnPosition(sequence([0, 0.5]), area);
-    expect(p.z).toBe(-4);
-    expect(p.y).toBeCloseTo(3.6);
-    expect(p.x).toBe(0);
+  it("奥行きと横位置は範囲の両端に収まり、高さは基準に余白を足した位置になる", () => {
+    // 最初の乱数が奥行き、次の乱数が横位置
+    const low = spawnPosition(sequence([0, 0]), area);
+    expect(low).toEqual({ x: -4, y: 3.6, z: -4 });
+
+    const high = spawnPosition(sequence([ALMOST_ONE, ALMOST_ONE]), area);
+    expect(high.z).toBeLessThanOrEqual(2);
+    expect(high.x).toBeLessThanOrEqual(4);
+    expect(high.y).toBeCloseTo(3.6);
   });
 
-  it("x は半幅の範囲に収まる", () => {
-    expect(spawnPosition(sequence([0.5, 0]), area).x).toBe(-4);
-    expect(spawnPosition(sequence([0.5, 0.999999]), area).x).toBeLessThanOrEqual(4);
-  });
-
-  it("奥行きは範囲に収まる", () => {
-    expect(spawnPosition(sequence([0.5, 0.5]), area).z).toBe(-1);
-    expect(spawnPosition(sequence([0.999999, 0.5]), area).z).toBeLessThanOrEqual(2);
-  });
-
-  it("半幅が負でも x は 0 に固定され、範囲外へ出ない", () => {
+  it("半幅が負のときは横位置を 0 に固定して範囲外へ出さない", () => {
     expect(spawnPosition(sequence([0.5, 0.1]), { ...area, halfWidth: -1 }).x).toBe(0);
   });
 });
 
-describe("spawnVelocity", () => {
-  it("横方向だけに速度を持ち、縦と奥行きは 0", () => {
-    const v = spawnVelocity(() => 1, 1.5);
-    expect(v.x).toBeCloseTo(1.5);
-    expect(v.y).toBe(0);
-    expect(v.z).toBe(0);
+describe("初速と姿勢の乱数", () => {
+  it("横速度は横方向だけに持ち、乱数の両端が上限の両端になる", () => {
+    expect(spawnVelocity(() => 0, 1.5)).toEqual({ x: -1.5, y: 0, z: 0 });
+    expect(spawnVelocity(() => ALMOST_ONE, 1.5).x).toBeCloseTo(1.5, 4);
   });
 
-  it("上限を超えない", () => {
-    for (const r of [0, 0.25, 0.5, 0.75, 0.999]) {
-      expect(Math.abs(spawnVelocity(() => r, 1.5).x)).toBeLessThanOrEqual(1.5);
-    }
-  });
-});
+  it("姿勢、角速度、転がす力は各軸に別々の乱数を使う", () => {
+    const rotation = spawnRotation(sequence([0, 0.5, 0.25]));
+    expect(rotation.x).toBeCloseTo(0);
+    expect(rotation.y).toBeCloseTo(Math.PI);
+    expect(rotation.z).toBeCloseTo(Math.PI / 2);
 
-describe("spawnRotation", () => {
-  it("各軸に別々の乱数を使い、0 以上 2π 未満に収まる", () => {
-    const r = spawnRotation(sequence([0, 0.5, 0.25]));
-    expect(r.x).toBeCloseTo(0);
-    expect(r.y).toBeCloseTo(Math.PI);
-    expect(r.z).toBeCloseTo(Math.PI / 2);
-  });
-});
+    const spin = spawnAngularVelocity(sequence([0, 1, 0.5]), 4);
+    expect(spin.x).toBeCloseTo(-4);
+    expect(spin.y).toBeCloseTo(4);
+    expect(spin.z).toBeCloseTo(0);
 
-describe("spawnAngularVelocity", () => {
-  it("各軸が上限の範囲に収まる", () => {
-    const w = spawnAngularVelocity(sequence([0, 1, 0.5]), 4);
-    expect(w.x).toBeCloseTo(-4);
-    expect(w.y).toBeCloseTo(4);
-    expect(w.z).toBeCloseTo(0);
+    // 上向きは固定値、横向きだけ乱数
+    const impulse = nudgeImpulse(sequence([0, 1]), 3, 1.5);
+    expect(impulse.y).toBe(3);
+    expect(impulse.x).toBeCloseTo(-1.5);
+    expect(impulse.z).toBeCloseTo(1.5);
   });
 });
 
 describe("capsuleFor", () => {
-  it("縦長なら横幅を半径、残りを円筒の長さにする", () => {
-    const c = capsuleFor({ x: 0.6, y: 1.2, z: 0.4 });
-    expect(c.radius).toBeCloseTo(0.3);
-    expect(c.length).toBeCloseTo(0.6);
-  });
+  it("縦長なら横幅を半径にして残りを円筒に、横長なら高さの半分を半径にして円筒は 0 にする", () => {
+    const tall = capsuleFor({ x: 0.6, y: 1.2, z: 0.4 });
+    expect(tall.radius).toBeCloseTo(0.3);
+    expect(tall.length).toBeCloseTo(0.6);
 
-  it("横長なら高さの半分を半径にし、円筒の長さは 0 になる", () => {
-    const c = capsuleFor({ x: 1.2, y: 0.5, z: 1.0 });
-    expect(c.radius).toBeCloseTo(0.25);
-    expect(c.length).toBe(0);
+    const wide = capsuleFor({ x: 1.2, y: 0.5, z: 1.0 });
+    expect(wide.radius).toBeCloseTo(0.25);
+    expect(wide.length).toBe(0);
   });
 });

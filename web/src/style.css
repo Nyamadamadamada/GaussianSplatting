@@ -11,7 +11,8 @@ body {
   margin: 0;
   height: 100%;
   overflow: hidden;
-  background: var(--bg);
+  /* 部屋の外に見える空。上を淡い緑、下を白にして部屋の床へ自然につなげる */
+  background: linear-gradient(180deg, #e3f5d0 0%, #f2f9ea 45%, var(--bg) 100%);
   color: var(--ink);
   font-family: "Hiragino Sans", "Noto Sans JP", "Yu Gothic", sans-serif;
 }
@@ -24,38 +25,145 @@ body {
   display: block;
 }
 
+/* 空に浮かぶ飾り。画面の下から上へゆっくり昇り、回りながら消える。
+   各飾りの横位置、大きさ、周期、開始位置、色は index.html の変数で指定する */
+.sky {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.sky span {
+  position: absolute;
+  left: var(--x);
+  top: 100%;
+  width: var(--s);
+  height: var(--s);
+  background: var(--c);
+  opacity: 0.7;
+  animation: sky-rise var(--d) linear infinite;
+  /* 開始位置を周期の途中にずらし、読み込み直後から空全体に散らばって見せる */
+  animation-delay: calc(-1 * var(--d) * var(--p));
+}
+
+.sky-circle {
+  border-radius: 50%;
+}
+
+@keyframes sky-rise {
+  from {
+    transform: translateY(0) rotate(0deg);
+  }
+  to {
+    transform: translateY(calc(-100vh - var(--s))) rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sky span {
+    animation: none;
+    top: calc(20% + 60% * var(--p));
+  }
+}
+
 .ui {
   position: fixed;
   left: 50%;
-  top: 24px;
+  top: 0;
   transform: translateX(-50%);
   display: grid;
   justify-items: center;
-  gap: 8px;
+  gap: 4px;
   z-index: 1;
 }
 
-#drop {
-  font: inherit;
-  font-size: 1.1rem;
-  font-weight: 700;
-  padding: 12px 28px;
+/* 画面の上端から吊り下げた看板。ピンは画像の高さの 5% あたりにあるので、
+   その分だけ上にずらして画面の縁に掛ける。
+   揺れるのは内側の画像だけにして、ボタンの枠は動かさない。枠が動き続けるとクリック判定が安定しない */
+.sign {
+  --sign-height: clamp(220px, 42vh, 380px);
+  position: relative;
+  margin-top: calc(-0.04 * var(--sign-height));
+  padding: 0;
   border: 0;
-  border-radius: 999px;
-  background: var(--accent);
-  color: #fff;
+  background: none;
   cursor: pointer;
-  box-shadow: 0 4px 14px rgba(63, 157, 0, 0.3);
 }
 
-#drop:hover:not(:disabled) {
-  background: var(--accent-ink);
+/* 画像の上端にあるピンを支点にして揺れる */
+.sign-board {
+  display: block;
+  height: var(--sign-height);
+  width: auto;
+  filter: drop-shadow(0 8px 14px rgba(0, 0, 0, 0.25));
+  transform-origin: 50% 6%;
+  animation: sign-sway 4s ease-in-out infinite;
+  transition: filter 0.2s;
 }
 
-#drop:disabled {
-  background: #9aa89b;
+.sign:hover:not(:disabled) .sign-board,
+.sign:focus-visible .sign-board {
+  filter: drop-shadow(0 12px 18px rgba(0, 0, 0, 0.3)) brightness(1.05);
+}
+
+.sign:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 12px;
+}
+
+.sign:disabled {
   cursor: progress;
-  box-shadow: none;
+}
+
+.sign:disabled .sign-board {
+  filter: grayscale(0.6) opacity(0.7);
+  animation: none;
+}
+
+/* 待っている間のゆっくりした揺れ */
+@keyframes sign-sway {
+  0%,
+  100% {
+    transform: rotate(-1.2deg);
+  }
+  50% {
+    transform: rotate(1.2deg);
+  }
+}
+
+/* クリックしたときの揺れ。大きく振れてから次第に収まる */
+.sign-swing .sign-board {
+  animation: sign-swing 1.3s ease-in-out;
+}
+
+@keyframes sign-swing {
+  0% {
+    transform: rotate(0deg);
+  }
+  15% {
+    transform: rotate(9deg);
+  }
+  35% {
+    transform: rotate(-7deg);
+  }
+  55% {
+    transform: rotate(4deg);
+  }
+  75% {
+    transform: rotate(-2deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sign-board,
+  .sign-swing .sign-board {
+    animation: none;
+  }
 }
 
 .status {
@@ -146,4 +254,103 @@ body {
   .help-list li:not(.help-touch) {
     display: none;
   }
+}
+
+/* 場面 1 の覆い。部屋と操作 UI の上に重ねる。
+   背景は JS を待たずに見せるため CSS で指定し、読み込み前は近い色で塗っておく */
+.opening {
+  --opening-ink: #f6f1e3;
+  --opening-floor: 22vh;
+  --qiitan-size: clamp(200px, 36vmin, 400px);
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  overflow: hidden;
+  background-color: #1f6e5f;
+  background-image: url("/img/green_paint06.jpg");
+  background-size: cover;
+  background-position: center;
+  color: var(--opening-ink);
+}
+
+/* 絵具の背景は明暗が入り混じるので、薄い黒を重ねて文字を読みやすくする */
+.opening::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.opening[hidden],
+.peek[hidden] {
+  display: none;
+}
+
+/* 題名は 1 枚の画像で、画面中央の上に置く。着地の衝撃で現れるので最初は見えない。
+   横幅と高さの両方で上限を決め、どの画面でも着地した Qiitan と重ならないようにする */
+.opening-title {
+  position: absolute;
+  top: 5%;
+  left: 50%;
+  translate: -50% 0;
+  width: min(88vw, 90vh);
+  height: auto;
+  filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.35));
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* 着地する床の線 */
+.opening-floor {
+  position: absolute;
+  left: 18%;
+  right: 18%;
+  bottom: var(--opening-floor);
+  height: 2px;
+  background: currentColor;
+  opacity: 0.55;
+}
+
+/* 高さに合わせて大きさが変わる影。床の線の上に置く */
+.opening-shadow {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--opening-floor) - 0.04 * var(--qiitan-size));
+  width: calc(0.8 * var(--qiitan-size));
+  height: calc(0.1 * var(--qiitan-size));
+  border-radius: 50%;
+  background: #000;
+  opacity: 0;
+  transform: translate(-50%, 0);
+}
+
+/* 写真の下端は高さの 98% にあるので、その下端を床の線に合わせる。幅を基準にし、縦横比は画像のまま */
+.opening-qiitan {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--opening-floor) - 0.02 * var(--qiitan-size));
+  width: var(--qiitan-size);
+  height: auto;
+  transform: translate(-50%, 60vh);
+  transform-origin: 50% 98%;
+  filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.2));
+  pointer-events: none;
+}
+
+/* 場面 2 の顔出し。操作を邪魔しないよう、画面の操作は素通しする。操作案内より下に重ねる */
+.peek {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  width: clamp(280px, 46vmin, 520px);
+  height: auto;
+  transform: translate(70%, 70%);
+  pointer-events: none;
+}
+
+/* 顔を出した位置で止まる。飾りなので、止まったあとは動かさない。
+   止まる位置は openingScene.ts の PEEK_REST と同じ値にそろえる */
+.peek-rest {
+  transform: translate(30%, 25%) rotate(-15deg);
 }

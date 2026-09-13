@@ -4,16 +4,45 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Qiitan 落下サイト</title>
+    <title>3D Gaussian Splatting きーたん</title>
+    <link rel="preload" as="image" href="./img/green_paint06.jpg" />
+    <link rel="preload" as="image" href="./img/title.png" />
+    <link rel="preload" as="image" href="./img/title2.png" />
     <link rel="stylesheet" href="./src/style.css" />
   </head>
   <body>
+    <!-- 部屋の外に見える空。緑と白の丸がゆっくり浮かび上がる。canvas は透過なので壁の上に見える -->
+    <div class="sky" aria-hidden="true">
+      <span class="sky-circle" style="--x: 6%; --s: 70px; --d: 26s; --p: 0.1; --c: #b5e48c"></span>
+      <span class="sky-circle" style="--x: 15%; --s: 18px; --d: 21s; --p: 0.55; --c: #ffffff"></span>
+      <span class="sky-circle" style="--x: 24%; --s: 28px; --d: 18s; --p: 0.3; --c: #99d98c"></span>
+      <span class="sky-circle" style="--x: 33%; --s: 22px; --d: 29s; --p: 0.8; --c: #ffffff"></span>
+      <span class="sky-circle" style="--x: 44%; --s: 46px; --d: 23s; --p: 0.45; --c: #76c893"></span>
+      <span class="sky-circle" style="--x: 55%; --s: 16px; --d: 19s; --p: 0.05; --c: #ffffff"></span>
+      <span class="sky-circle" style="--x: 64%; --s: 84px; --d: 31s; --p: 0.7; --c: #b5e48c"></span>
+      <span class="sky-circle" style="--x: 74%; --s: 20px; --d: 24s; --p: 0.25; --c: #ffffff"></span>
+      <span class="sky-circle" style="--x: 84%; --s: 34px; --d: 20s; --p: 0.9; --c: #76c893"></span>
+      <span class="sky-circle" style="--x: 92%; --s: 24px; --d: 27s; --p: 0.4; --c: #ffffff"></span>
+    </div>
     <canvas id="stage" aria-label="Qiitan が降ってくる 3D 表示"></canvas>
+    <!-- 場面 1。読み込み中の画面が見えないよう、最初から表示しておき、終わったら JS で隠す -->
+    <div id="opening" class="opening" aria-hidden="true">
+      <img class="opening-title" src="./img/title.png" alt="3D Gaussian Splatting きーたん" />
+      <div class="opening-floor"></div>
+      <div class="opening-shadow"></div>
+      <img id="opening-qiitan" class="opening-qiitan" src="./img/qiitan.png" alt="" />
+    </div>
+    <!-- 場面 2。右下から顔を出す Qiitan -->
+    <img id="peek" class="peek" src="./img/qiitan.png" alt="" hidden />
+    <!-- 吊り下げ看板。看板そのものがボタンで、クリックすると Qiitan が降ってくる -->
     <div class="ui">
-      <button id="drop" type="button" disabled>読み込み中...</button>
+      <button id="drop" class="sign" type="button" disabled aria-label="読み込み中...">
+        <img class="sign-board" src="./img/title2.png" alt="" />
+      </button>
       <p id="status" class="status" aria-live="polite"></p>
     </div>
-    <details class="help" open>
+    <!-- 操作案内。部屋を広く見せるため、最初は見出しだけを表示する -->
+    <details class="help">
       <summary class="help-title">画面の操作</summary>
       <ul class="help-list">
         <li>

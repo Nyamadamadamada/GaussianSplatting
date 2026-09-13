@@ -2,15 +2,23 @@ import * as THREE from "three";
 import { SparkRenderer } from "@sparkjsdev/spark";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RapierPhysics } from "three/addons/physics/RapierPhysics.js";
-import { spawnAngularVelocity, spawnPosition, spawnRotation, spawnVelocity } from "./falling";
+import {
+  nudgeImpulse,
+  spawnAngularVelocity,
+  spawnPosition,
+  spawnRotation,
+  spawnVelocity,
+} from "./falling";
+import { Opening } from "./openingScene";
 import { Qiitan, loadQiitanShape } from "./qiitan";
 
 // 表示する 3DGS データ。Vite の base からの相対パスで解決する
-const SPLAT_URL = `${import.meta.env.BASE_URL}models/butterfly.spz`;
+const SPLAT_URL = `${import.meta.env.BASE_URL}models/export_05000.spz`;
 // Qiitan の最長辺をこの大きさに揃える
-const QIITAN_SIZE = 1.8;
+const QIITAN_SIZE = 2.16;
+const query = new URLSearchParams(location.search);
 // 読み込み完了時に自動で降らせる数と、その間隔。URL の initial パラメータで上書きできる
-const INITIAL_COUNT = Number(new URLSearchParams(location.search).get("initial") ?? 10);
+const INITIAL_COUNT = Number(query.get("initial") ?? 10);
 const INITIAL_INTERVAL_MS = 150;
 // 同時に存在できる Qiitan の数。超えた分は古いものから再利用する。
 // 1 体あたり約 18 万スプラットあるため、描画負荷を抑えるために控えめにする
@@ -39,22 +47,62 @@ const MASS = 1;
 const RESTITUTION = 0.4;
 const MAX_SIDEWAYS_SPEED = 0.8;
 const MAX_SPIN = 4;
+// タップで転がすときの力。上向きと、横向きの上限
+const NUDGE_UP = 3;
+const NUDGE_SIDEWAYS = 1.5;
+// 押してから離すまでがこの範囲ならタップとみなし、それ以上は画面の回転として扱う
+const TAP_MAX_DISTANCE_PX = 8;
+const TAP_MAX_MS = 400;
 
 const canvas = document.querySelector<HTMLCanvasElement>("#stage")!;
 const dropButton = document.querySelector<HTMLButtonElement>("#drop")!;
 const status = document.querySelector<HTMLParagraphElement>("#status")!;
 
-// Spark はアンチエイリアスを使うと大きく遅くなるため、必ず無効にする
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
-// スマホで描画が重くなるのを避けるため、解像度の上限を抑える
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+// 看板を揺らす。続けて呼ばれても最初から揺れ直すよう、一度クラスを外して描画を確定させる
+function swingSign(): void {
+  dropButton.classList.remove("sign-swing");
+  void dropButton.offsetWidth;
+  dropButton.classList.add("sign-swing");
+}
+dropButton.addEventListener("animationend", (event) => {
+  if (event.animationName === "sign-swing") {
+    dropButton.classList.remove("sign-swing");
+  }
+});
+const openingRoot = document.querySelector<HTMLElement>("#opening")!;
+
+// オープニング。URL の opening=0 で省略できる。
+// モデルの読み込みと並行して場面 1 を進め、両方が終わってから部屋を見せる
+const opening =
+  query.get("opening") === "0"
+    ? null
+    : new Opening({
+        root: openingRoot,
+        qiitan: document.querySelector<HTMLImageElement>("#opening-qiitan")!,
+        shadow: openingRoot.querySelector<HTMLElement>(".opening-shadow")!,
+        titles: [...openingRoot.querySelectorAll<HTMLImageElement>(".opening-title")],
+        peek: document.querySelector<HTMLImageElement>("#peek")!,
+        stage: canvas,
+      });
+if (opening) {
+  void opening.play();
+} else {
+  openingRoot.hidden = true;
+}
+
+// Spark はアンチエイリアスを使うと大きく遅くなるため、必ず無効にする。
+// 背景は CSS の空を透かして見せるため、canvas を透過にする
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: true });
+// 描画の画素数を抑えて発熱を減らす。Retina でも 1.5 倍までにする
+const MAX_PIXEL_RATIO = 1.5;
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO));
 renderer.setSize(window.innerWidth, window.innerHeight);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color("#f5f8f3");
 // 全体で描画するスプラット数に上限を設け、体数が増えても負荷が一定になるようにする。
-// 上限を超えた分は Spark の LOD が小さく見えるスプラットから間引く
-const LOD_SPLAT_BUDGET = 800_000;
+// 上限を超えた分は Spark の LOD が小さく見えるスプラットから間引く。
+// 1 体約 10 万点なので、40 万点あれば見た目はほぼ変わらず、発熱を抑えられる
+const LOD_SPLAT_BUDGET = 400_000;
 scene.add(new SparkRenderer({ renderer, lodSplatCount: LOD_SPLAT_BUDGET }));
 
 const camera = new THREE.PerspectiveCamera(
@@ -181,7 +229,7 @@ function buildRoom(physics: Awaited<ReturnType<typeof RapierPhysics>>): void {
 // 白い箱を組み合わせたソファーを部屋の中央に置く。各パーツをそのまま当たり判定にする
 function buildSofa(physics: Awaited<ReturnType<typeof RapierPhysics>>, z: number): void {
   const material = new THREE.MeshLambertMaterial({ color: "#f6f5f0" });
-  const seat = { width: 3, height: 0.45, depth: 1.8, bottom: FLOOR_Y + 0.15 };
+  const seat = { width: 3, height: 0.45, depth: 2.7, bottom: FLOOR_Y + 0.15 };
   const armWidth = 0.3;
   const backDepth = 0.3;
   const parts: { size: THREE.Vector3; position: THREE.Vector3 }[] = [
@@ -254,8 +302,38 @@ async function main(): Promise<void> {
       spawnVelocity(Math.random, MAX_SIDEWAYS_SPEED),
       spawnAngularVelocity(Math.random, MAX_SPIN),
     );
-    status.textContent = `${qiitans.length} 体`;
+    dropButton.dataset.count = String(qiitans.length);
+    swingSign();
   }
+
+  // タップした位置にいる Qiitan を転がす。当たり判定には見えないカプセルを使う
+  const raycaster = new THREE.Raycaster();
+  const pointer = new THREE.Vector2();
+  function nudgeAt(clientX: number, clientY: number): void {
+    pointer.set((clientX / window.innerWidth) * 2 - 1, -(clientY / window.innerHeight) * 2 + 1);
+    raycaster.setFromCamera(pointer, camera);
+    const hit = raycaster.intersectObjects(
+      qiitans.map((qiitan) => qiitan.body),
+      false,
+    )[0];
+    if (!hit) return;
+    const qiitan = qiitans.find((candidate) => candidate.body === hit.object);
+    qiitan?.nudge(physics, nudgeImpulse(Math.random, NUDGE_UP, NUDGE_SIDEWAYS));
+  }
+
+  let pointerDown: { x: number; y: number; time: number } | null = null;
+  canvas.addEventListener("pointerdown", (event) => {
+    pointerDown = { x: event.clientX, y: event.clientY, time: performance.now() };
+  });
+  canvas.addEventListener("pointerup", (event) => {
+    if (!pointerDown) return;
+    const moved = Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y);
+    const elapsed = performance.now() - pointerDown.time;
+    pointerDown = null;
+    if (moved <= TAP_MAX_DISTANCE_PX && elapsed <= TAP_MAX_MS) {
+      nudgeAt(event.clientX, event.clientY);
+    }
+  });
 
   renderer.setAnimationLoop(() => {
     for (const qiitan of qiitans) {
@@ -268,7 +346,11 @@ async function main(): Promise<void> {
 
   dropButton.addEventListener("click", drop);
   dropButton.disabled = false;
-  dropButton.textContent = "Qiitan を降らせる";
+  dropButton.setAttribute("aria-label", "Qiitan を降らせる");
+
+  // 場面 1 を終えて部屋を見せてから、場面 2 の顔出しと最初の落下を始める
+  await opening?.reveal();
+  opening?.peek();
 
   // 最初から賑やかに見えるよう、間隔をあけて自動で降らせる
   for (let i = 0; i < INITIAL_COUNT; i++) {
@@ -279,6 +361,8 @@ async function main(): Promise<void> {
 
 main().catch((error: unknown) => {
   console.error(error);
-  dropButton.textContent = "読み込みに失敗しました";
+  dropButton.setAttribute("aria-label", "読み込みに失敗しました");
   status.textContent = error instanceof Error ? error.message : String(error);
+  // 失敗の表示が覆いに隠れないようにする
+  void opening?.reveal();
 });

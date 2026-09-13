@@ -67,6 +67,15 @@ export function spawnAngularVelocity(rng: Rng, maxSpin: number): Vec3 {
   };
 }
 
+// タップで転がすときに加える力。上向きを主にして、横向きはランダムにする
+export function nudgeImpulse(rng: Rng, up: number, maxSideways: number): Vec3 {
+  return {
+    x: randomBetween(rng, -maxSideways, maxSideways),
+    y: up,
+    z: randomBetween(rng, -maxSideways, maxSideways),
+  };
+}
+
 export type CapsuleSize = {
   // 半球部分の半径
   radius: number;

@@ -227,3 +227,5 @@ CLAUDE.md
 # input には撮影した動画、output には圧縮動画や COLMAP の処理結果など再生成できるものを置く
 model/input/
 model/output/
+# Brush の実行ファイル。40MB を超えるため、README の手順で各自が配置する
+model/bin/
